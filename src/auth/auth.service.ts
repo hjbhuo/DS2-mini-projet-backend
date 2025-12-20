@@ -1,36 +1,77 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User, UserRole } from '../users/user.entity';
-import { RegisterDto } from './dto/create-auth.dto';
-import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import { User, UserRole } from '../users/user.entity';
+import { RegisterDto, LoginDto } from './dto/create-auth.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
-    private usersRepository: Repository<User>,
-    private jwtService: JwtService,
+    private readonly userRepository: Repository<User>,
+    private readonly jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<User> {
-    const { email, username, password } = dto;
+  // Méthode pour créer un nouvel utilisateur
+  async register(dto: RegisterDto) {
+    // Vérifier si l'email existe déjà
+    const existingUser = await this.userRepository.findOne({ where: { email: dto.email } });
+    if (existingUser) {
+      throw new BadRequestException('Email already exists');
+    }
 
-    const existing = await this.usersRepository.findOne({ where: { email } });
-    if (existing) throw new BadRequestException('Email déjà utilisé');
+    // Hasher le mot de passe
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    const hash = await bcrypt.hash(password, 10);
-
-    const user = this.usersRepository.create({
-      email,
-      username,
-      password: hash,
-      role: UserRole.TECH, // par défaut TECH
+    // Créer l'utilisateur
+    const user = this.userRepository.create({
+      username: dto.username,        // correspond à la colonne username
+      email: dto.email,
+      password: hashedPassword,
+      role: dto.role as UserRole,    // ENUM
     });
 
-    return this.usersRepository.save(user);
+    await this.userRepository.save(user);
+
+    return {
+      message: 'User registered successfully',
+    };
   }
 
-  
+  // Méthode pour l'authentification (login)
+  async login(dto: LoginDto) {
+    const user = await this.userRepository.findOne({ where: { email: dto.email } });
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const isPasswordValid = await bcrypt.compare(dto.password, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Générer un JWT
+    const payload = { id: user.id, role: user.role };
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      accessToken,
+    };
+  }
+
+  // Méthode optionnelle pour vérifier le profil de l'utilisateur
+  async getProfile(userId: number) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+    };
+  }
 }
