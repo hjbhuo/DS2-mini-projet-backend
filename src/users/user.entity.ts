@@ -1,10 +1,12 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 import { Intervention } from '../interventions/intervention.entity';
 
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   TECH = 'TECH',
 }
+
 
 @Entity()
 export class User {
